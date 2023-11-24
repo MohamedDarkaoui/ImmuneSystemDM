@@ -1,45 +1,41 @@
 from tensorflow import keras
 
 
-def create_conv(unit_nr: int, conv_nr: int, config: dict, **kwargs):
+def create_conv(nr_filters: int, **kwargs):
     return keras.layers.Conv2D(
-            config['filters'][unit_nr][conv_nr],
-            config['kernel_size'],
-            activation=config['activation'],
-            padding=config['padding'],
-            kernel_initializer=config['kernel_initializer'],
-            kernel_regularizer=config['kernel_regularizer'],
+            nr_filters,
+            (3, 3),
+            activation='relu',
+            padding='same',
+            kernel_initializer='he_normal',
+            kernel_regularizer=keras.regularizers.l2(0.01),
             **kwargs
         )
 
 
-def build_model(config: dict):
+def add_unit(model, shape=None):
+    if shape:
+        model.add(create_conv(128, input_shape=shape))
+    else:
+        model.add(create_conv(128))
+    model.add(keras.layers.BatchNormalization())
+    model.add(create_conv(64))
+    model.add(keras.layers.MaxPool2D(pool_size=(2, 2)))
+    model.add(keras.layers.SpatialDropout2D(0.25))
+    model.add(keras.layers.BatchNormalization())
+
+
+def build_model(input_shape: tuple):
     model = keras.models.Sequential()
-
     # unit 1
-    model.add(create_conv(0, 0, config, input_shape=(21, 10, 4)))
-    model.add(keras.layers.BatchNormalization())
-    model.add(create_conv(0, 1, config))
-    model.add(keras.layers.MaxPool2D(pool_size=config['pool_size']))
-    model.add(keras.layers.SpatialDropout2D(config['dropout_conv']))
-    model.add(keras.layers.BatchNormalization())
-
+    add_unit(model)
     # unit 2
-    model.add(create_conv(1, 0, config))
-    model.add(keras.layers.BatchNormalization())
-    model.add(create_conv(1, 1, config))
-    model.add(keras.layers.MaxPool2D(pool_size=config['pool_size']))
-    model.add(keras.layers.SpatialDropout2D(config['dropout_conv']))
-    model.add(keras.layers.BatchNormalization())
-
+    add_unit(model)
     #  flatten
     model.add(keras.layers.Flatten())
-
     # FC layer
-    model.add((keras.layers.Dense(config['dense_units'], config['dense_activation'])))
-
+    model.add((keras.layers.Dense(32, 'relu')))
     # output layer
-    model.add(keras.layers.Dense(config['nr_classes'], config['final_activation']))
-
+    model.add(keras.layers.Dense(1, 'sigmoid'))
     return model
 
