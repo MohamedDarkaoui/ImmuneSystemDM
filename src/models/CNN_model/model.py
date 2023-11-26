@@ -25,6 +25,25 @@ def add_unit(model, shape=None):
     model.add(keras.layers.BatchNormalization())
 
 
+def compile_model(model):
+    model.compile(
+        optimizer='rmsprop',
+        loss=keras.losses.BinaryCrossentropy(),
+        metrics=[
+            'accuracy',
+            keras.metrics.AUC(curve="ROC", name="roc_auc"),
+            keras.metrics.Precision(name="precision"),
+            keras.metrics.Recall(name="recall")
+        ],
+        loss_weights=None,
+        sample_weight_mode=None,
+        weighted_metrics=None,
+        target_tensors=None,
+        distribute=None,
+    )
+    return model
+
+
 def build_model(input_shape: tuple):
     model = keras.models.Sequential()
     # unit 1
@@ -37,5 +56,8 @@ def build_model(input_shape: tuple):
     model.add((keras.layers.Dense(32, 'relu')))
     # output layer
     model.add(keras.layers.Dense(1, 'sigmoid'))
+
+    model = compile_model(model)
     return model
+
 
