@@ -5,6 +5,14 @@ import pandas as pd
 import numpy as np
 from src.external.bio.peptide_feature import parse_features, parse_operator
 from src.external.bio.feature_builder import CombinedPeptideFeatureBuilder
+from copy import deepcopy
+from enum import Enum
+
+
+class InteractionMapMode(Enum):
+    SINGLE = 1
+    CONCATENATE = 2
+    COMBINE = 3
 
 
 def list_epitopes(folder_name: str):
@@ -26,7 +34,7 @@ def concat_columns(df: pandas.DataFrame, tcr_chains: list):
     col_name = ''.join(tcr_chains)
     df[col_name] = df[tcr_chains].apply(lambda x: ''.join(x), axis=1)
     df.drop(columns=tcr_chains, inplace=True)
-    return df
+    return df, [col_name]
 
 
 def load_epitope_tcr_data(folder_name: str,  epitope_name: str, tcr_chains: list):
@@ -44,8 +52,6 @@ def load_epitope_tcr_data(folder_name: str,  epitope_name: str, tcr_chains: list
     df['Epitope'] = epitope_name
     df = df[columns]
     df['Label'] = df['Label'].replace(-1, 0)
-    if len(tcr_chains) > 1:
-        df = concat_columns(df, tcr_chains)
     return df
 
 
@@ -68,23 +74,49 @@ def load_complete_data(epitopes: list, folder_name: str, tcr_chains: list):
     return df
 
 
-def calculate_imap_shape(df_train: pandas.DataFrame, tcr_chain: str):
+def calculate_imap_shape(df_train: pandas.DataFrame, tcr_chains: list, mode: InteractionMapMode):
     """
     finds the  maximum epitope and tcr chain lengths
     """
-    train_epitopes = df_train['Epitope'].tolist()
-    train_tcr = df_train[tcr_chain].tolist()
 
-    return len(max(train_tcr, key=len)), len(max(train_epitopes, key=len))
+    epitopes = df_train['Epitope'].unique().tolist()
+
+    height = 0
+    width = len(max(epitopes, key=len))
+    depth = 4
+
+    if mode.value == InteractionMapMode.COMBINE.value:
+        assert len(tcr_chains) > 1
+
+        for chain in tcr_chains:
+            tcr_list = df_train[chain].unique().tolist()
+            new_height = len(max(tcr_list, key=len))
+            if new_height > height:
+                height = new_height
+            depth = 8
+    elif mode.value == InteractionMapMode.CONCATENATE.value:
+        assert len(tcr_chains) == 1
+        tcr_chain = tcr_chains[0]
+        tcr_list = df_train[tcr_chain].unique().tolist()
+        height = len(max(tcr_list, key=len))
+    else:
+        assert len(tcr_chains) == 1
+        tcr_list = df_train[tcr_chains[0]].unique().tolist()
+        height = len(max(tcr_list, key=len))
+
+    return height, width, depth
 
 
-def generate_interaction_map(tcr_chain, epitope, features_string, operator_string):
+def generate_interaction_maps(tcr_chains, epitope, features_string, operator_string):
     # specify the different interaction map features and the operator that is used to calculate the entries
-    features_list = parse_features(features_string)
-    operator = parse_operator(operator_string)
-    feature_builder = CombinedPeptideFeatureBuilder(features_list, operator)
-
-    return feature_builder.generate_peptides_feature(tcr_chain, epitope)
+    imaps = []
+    for chain in tcr_chains:
+        features_list = parse_features(features_string)
+        operator = parse_operator(operator_string)
+        feature_builder = CombinedPeptideFeatureBuilder(features_list, operator)
+        imap = feature_builder.generate_peptides_feature(chain, epitope)
+        imaps.append(imap)
+    return imaps
 
 
 def pad(interaction_map, target_height, target_width):
@@ -105,49 +137,71 @@ def pad(interaction_map, target_height, target_width):
     return np.pad(interaction_map, padding, mode='constant', constant_values=0)
 
 
-def generate_padded_imap(tcr_chain, epitope, max_len_tcr, max_len_epitope):
-    imap = pad(
-        generate_interaction_map(
-            tcr_chain,
-            epitope,
-            'hydrophob,isoelectric,mass,hydrophil',
-            'absdiff'
-        ),
-        max_len_tcr,
-        max_len_epitope
+def generate_padded_imaps(tcr_chains, epitope, height, width):
+    imaps = generate_interaction_maps(
+        tcr_chains,
+        epitope,
+        'hydrophob,isoelectric,mass,hydrophil',
+        'absdiff'
     )
-    return imap
+    padded_imaps = []
+    for i in range(len(tcr_chains)):
+        imap = pad(
+            imaps[i],
+            height,
+            width
+        )
+        padded_imaps.append(imap)
+    return padded_imaps
 
 
-def add_imaps_and_relabel(df, chain_name, max_len_tcr, max_len_epitope):
+def combine_imaps(padded_imaps: list):
+    return np.concatenate(padded_imaps, axis=2)
+
+
+def add_imaps_and_relabel(df, tcr_chains, height, width, mode: InteractionMapMode):
     # for each tcr-epitope pair, generate an interaction map, zero pad it and store it in df
     imaps = []
     for index, row, in df.iterrows():
-        imap = generate_padded_imap(
-            tcr_chain=row[chain_name],
+        imap = generate_padded_imaps(
+            tcr_chains=[row[tcr_chains[i]] for i in range(len(tcr_chains))],
             epitope=row['Epitope'],
-            max_len_tcr=max_len_tcr,
-            max_len_epitope=max_len_epitope
+            height=height,
+            width=width
         )
-        imaps.append(imap)
-
+        if mode == InteractionMapMode.COMBINE:
+            imap = combine_imaps(imap)
+            imaps.append(imap)
+        else:
+            imaps.append(imap[0])
+    df = df.reset_index(drop=True)
     df['interaction_map'] = imaps
     df = df[['interaction_map', 'Label']]
+
     return df
 
 
-def generate_imap_dataset(train_folder, tcr_chains, shape=None):
-    chain_name = tcr_chains[0] if len(tcr_chains) == 0 else ''.join(tcr_chains)
-
+def generate_imap_dataset(train_folder: str, tcr_chains: list, mode: InteractionMapMode, shape: tuple = None):
     epitopes = list_epitopes(train_folder)
     df = load_complete_data(epitopes, train_folder, tcr_chains)
 
-    max_len_tcr, max_len_epitope = calculate_imap_shape(df, chain_name)
+    if mode.value == InteractionMapMode.CONCATENATE.value:
+        df, tcr_chains = concat_columns(df, tcr_chains)
+    height, width, depth = shape if shape else calculate_imap_shape(df, tcr_chains, mode=mode)
 
-    if shape:
-        max_len_tcr = shape[0]
-        max_len_epitope = shape[1]
-
-    df = add_imaps_and_relabel(df, chain_name, max_len_tcr, max_len_epitope)
-    imap_shape = max_len_tcr, max_len_epitope, 4
+    df = add_imaps_and_relabel(df, tcr_chains, height, width, mode)
+    imap_shape = height, width, depth
     return df, imap_shape
+
+
+def generate_test_data(test_folder: str, tcr_chains: list, mode: InteractionMapMode, imap_shape: tuple):
+    epitopes = list_epitopes(test_folder)
+    data = []
+    for epitope in epitopes:
+        chains = deepcopy(tcr_chains)
+        df = load_epitope_tcr_data(test_folder, epitope, chains)
+        if mode == InteractionMapMode.CONCATENATE:
+            df, chains = concat_columns(df, chains)
+        df = add_imaps_and_relabel(df, chains, imap_shape[0], imap_shape[1], mode)
+        data.append((epitope, df['interaction_map'].tolist(), df['Label'].tolist()))
+    return data
