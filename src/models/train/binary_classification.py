@@ -24,8 +24,8 @@ def train(
     model = build_model(imap_shape)
 
     # split data into train and validation set
-    X = list(imap_df['interaction_map'])
-    y = list(imap_df['Label'])
+    X = imap_df['interaction_map'].tolist()
+    y = imap_df['Label'].tolist()
 
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
