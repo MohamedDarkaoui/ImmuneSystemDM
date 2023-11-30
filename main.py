@@ -32,4 +32,5 @@ for epitope in epitopes:
     negatives['Label'] = int(0)
     df = pd.concat([df, negatives], ignore_index=True)
 
-df.to_csv('data/new.csv', sep=' ')
+df['Label'] = df['Label'].astype(int)
+df.to_csv('data/new.csv', sep=' ', index=False)
