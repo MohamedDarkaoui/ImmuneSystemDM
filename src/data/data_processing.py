@@ -13,6 +13,7 @@ class InteractionMapMode(Enum):
     SINGLE = 1
     CONCATENATE = 2
     COMBINE = 3
+    MERGE_DIMENSIONAL = 4
 
 
 def list_epitopes(folder_name: str):
@@ -70,7 +71,7 @@ def load_complete_data(epitopes: list, folder_name: str, tcr_chains: list):
         df = load_epitope_tcr_data(folder_name, epitope, tcr_chains)
         dfs.append(df)
 
-    df = pd.concat(dfs)
+    df = pd.concat(dfs, ignore_index=True)
     return df
 
 
@@ -85,7 +86,7 @@ def calculate_imap_shape(df_train: pandas.DataFrame, tcr_chains: list, mode: Int
     width = len(max(epitopes, key=len))
     depth = 4
 
-    if mode.value == InteractionMapMode.COMBINE.value:
+    if mode.value == InteractionMapMode.COMBINE.value or mode.value == InteractionMapMode.MERGE_DIMENSIONAL.value:
         assert len(tcr_chains) > 1
 
         for chain in tcr_chains:
@@ -169,12 +170,16 @@ def add_imaps_and_relabel(df, tcr_chains, height, width, mode: InteractionMapMod
             height=height,
             width=width
         )
-        if mode == InteractionMapMode.COMBINE:
+        if mode.value == InteractionMapMode.COMBINE.value:
             imap = combine_imaps(imap)
             imaps.append(imap)
+        elif mode.value == InteractionMapMode.MERGE_DIMENSIONAL.value:
+            combined_imap = np.zeros((2, height, width, 4))
+            combined_imap[0, :, :, :] = imap[0]
+            combined_imap[1, :, :, :] = imap[1]
+            imaps.append(combined_imap)
         else:
             imaps.append(imap[0])
-    df = df.reset_index(drop=True)
     df['interaction_map'] = imaps
     df = df[['interaction_map', 'Label']]
 
@@ -190,7 +195,7 @@ def generate_imap_dataset(train_folder: str, tcr_chains: list, mode: Interaction
     height, width, depth = shape if shape else calculate_imap_shape(df, tcr_chains, mode=mode)
 
     df = add_imaps_and_relabel(df, tcr_chains, height, width, mode)
-    imap_shape = height, width, depth
+    imap_shape = df.iloc[0, 0].shape
     return df, imap_shape
 
 
@@ -200,8 +205,12 @@ def generate_test_data(test_folder: str, tcr_chains: list, mode: InteractionMapM
     for epitope in epitopes:
         chains = deepcopy(tcr_chains)
         df = load_epitope_tcr_data(test_folder, epitope, chains)
-        if mode == InteractionMapMode.CONCATENATE:
+        if mode.value == InteractionMapMode.CONCATENATE.value:
             df, chains = concat_columns(df, chains)
-        df = add_imaps_and_relabel(df, chains, imap_shape[0], imap_shape[1], mode)
+
+        height, width = imap_shape[0], imap_shape[1]
+        if mode.value == InteractionMapMode.MERGE_DIMENSIONAL.value:
+            height, width = imap_shape[1], imap_shape[2]
+        df = add_imaps_and_relabel(df, chains, height, width, mode)
         data.append((epitope, df['interaction_map'].tolist(), df['Label'].tolist()))
     return data

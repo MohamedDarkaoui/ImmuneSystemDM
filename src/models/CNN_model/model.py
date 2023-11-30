@@ -47,7 +47,7 @@ def compile_model(model):
 def build_model(input_shape: tuple):
     model = keras.models.Sequential()
     # unit 1
-    add_unit(model)
+    add_unit(model, input_shape)
     # unit 2
     add_unit(model)
     #  flatten
