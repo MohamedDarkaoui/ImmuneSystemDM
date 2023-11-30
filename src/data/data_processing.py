@@ -56,7 +56,7 @@ def load_epitope_tcr_data(folder_name: str,  epitope_name: str, tcr_chains: list
     return df
 
 
-def load_complete_data(epitopes: list, folder_name: str, tcr_chains: list):
+def load_complete_data2(epitopes: list, folder_name: str, tcr_chains: list):
     """
     Creates a data frame that has three columns: [Epitope, tcr_chain[0]...tcr_chain[-1], Label]
     for oll epitopes
@@ -72,6 +72,15 @@ def load_complete_data(epitopes: list, folder_name: str, tcr_chains: list):
         dfs.append(df)
 
     df = pd.concat(dfs, ignore_index=True)
+    return df
+
+def load_complete_data(folder_name: str, tcr_chains: list):
+    """
+    Creates a data frame that has three columns: [Epitope, tcr_chain[0]...tcr_chain[-1], Label]
+    for oll epitopes
+    """
+    df = pd.read_csv(folder_name, sep=' ')
+    df = df[['Epitope'] + tcr_chains + ['Label']]
     return df
 
 
@@ -180,6 +189,7 @@ def add_imaps_and_relabel(df, tcr_chains, height, width, mode: InteractionMapMod
             imaps.append(combined_imap)
         else:
             imaps.append(imap[0])
+    df = df.reset_index(drop=True)
     df['interaction_map'] = imaps
     df = df[['interaction_map', 'Label']]
 
@@ -187,8 +197,7 @@ def add_imaps_and_relabel(df, tcr_chains, height, width, mode: InteractionMapMod
 
 
 def generate_imap_dataset(train_folder: str, tcr_chains: list, mode: InteractionMapMode, shape: tuple = None):
-    epitopes = list_epitopes(train_folder)
-    df = load_complete_data(epitopes, train_folder, tcr_chains)
+    df = load_complete_data(train_folder, tcr_chains)
 
     if mode.value == InteractionMapMode.CONCATENATE.value:
         df, tcr_chains = concat_columns(df, tcr_chains)
