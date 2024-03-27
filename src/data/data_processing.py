@@ -38,7 +38,7 @@ def concat_columns(df: pandas.DataFrame, tcr_chains: list):
     return df, [col_name]
 
 
-def load_epitope_tcr_data(folder_name: str,  epitope_name: str, tcr_chains: list):
+def load_epitope_tcr_data(folder_name: str, epitope_name: str, tcr_chains: list):
     """
     Creates a data frame that has three columns: [Epitope, tcr_chain[0]...tcr_chain[-1], Label]
     for one given epitope
@@ -74,6 +74,7 @@ def load_complete_data2(epitopes: list, folder_name: str, tcr_chains: list):
     df = pd.concat(dfs, ignore_index=True)
     return df
 
+
 def load_complete_data(folder_name: str, tcr_chains: list):
     """
     Creates a data frame that has three columns: [Epitope, tcr_chain[0]...tcr_chain[-1], Label]
@@ -94,16 +95,21 @@ def calculate_imap_shape(df_train: pandas.DataFrame, tcr_chains: list, mode: Int
     height = 0
     width = len(max(epitopes, key=len))
     depth = 4
-
+    nr_imaps = 0
     if mode.value == InteractionMapMode.COMBINE.value or mode.value == InteractionMapMode.MERGE_DIMENSIONAL.value:
         assert len(tcr_chains) > 1
 
         for chain in tcr_chains:
             tcr_list = df_train[chain].unique().tolist()
+            for i in range(len(tcr_list)):
+                if not isinstance(tcr_list[i], str):
+                    print(i)
             new_height = len(max(tcr_list, key=len))
             if new_height > height:
                 height = new_height
-            depth = 8
+        if mode.value == InteractionMapMode.MERGE_DIMENSIONAL.value:
+            nr_imaps = len(tcr_chains)
+        depth = 8
     elif mode.value == InteractionMapMode.CONCATENATE.value:
         assert len(tcr_chains) == 1
         tcr_chain = tcr_chains[0]
@@ -114,7 +120,7 @@ def calculate_imap_shape(df_train: pandas.DataFrame, tcr_chains: list, mode: Int
         tcr_list = df_train[tcr_chains[0]].unique().tolist()
         height = len(max(tcr_list, key=len))
 
-    return height, width, depth
+    return height, width, depth, nr_imaps
 
 
 def generate_interaction_maps(tcr_chains, epitope, features_string, operator_string):
@@ -183,9 +189,9 @@ def add_imaps_and_relabel(df, tcr_chains, height, width, mode: InteractionMapMod
             imap = combine_imaps(imap)
             imaps.append(imap)
         elif mode.value == InteractionMapMode.MERGE_DIMENSIONAL.value:
-            combined_imap = np.zeros((2, height, width, 4))
-            combined_imap[0, :, :, :] = imap[0]
-            combined_imap[1, :, :, :] = imap[1]
+            combined_imap = np.zeros((height, width, 4, len(tcr_chains)))
+            combined_imap[:, :, :, 0] = imap[0]
+            combined_imap[:, :, :, 1] = imap[1]
             imaps.append(combined_imap)
         else:
             imaps.append(imap[0])
@@ -201,7 +207,7 @@ def generate_imap_dataset(train_folder: str, tcr_chains: list, mode: Interaction
 
     if mode.value == InteractionMapMode.CONCATENATE.value:
         df, tcr_chains = concat_columns(df, tcr_chains)
-    height, width, depth = shape if shape else calculate_imap_shape(df, tcr_chains, mode=mode)
+    height, width, depth, _ = shape if shape else calculate_imap_shape(df, tcr_chains, mode=mode)
 
     df = add_imaps_and_relabel(df, tcr_chains, height, width, mode)
     imap_shape = df.iloc[0, 0].shape
@@ -218,8 +224,6 @@ def generate_test_data(test_folder: str, tcr_chains: list, mode: InteractionMapM
             df, chains = concat_columns(df, chains)
 
         height, width = imap_shape[0], imap_shape[1]
-        if mode.value == InteractionMapMode.MERGE_DIMENSIONAL.value:
-            height, width = imap_shape[1], imap_shape[2]
         df = add_imaps_and_relabel(df, chains, height, width, mode)
         data.append((epitope, df['interaction_map'].tolist(), df['Label'].tolist()))
     return data

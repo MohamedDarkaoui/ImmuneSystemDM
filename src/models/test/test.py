@@ -17,6 +17,9 @@ def evaluate(model_path, test_data):
         print('shape', imaps[0].shape)
         imaps_tensor = tf.stack(imaps)
         predicted_scores = loaded_model.predict(imaps_tensor)
-        auc = roc_auc_score(true_labels, predicted_scores)
-        auc_scores[epitope] = auc
+        threshold = 0.5
+        class_labels = (predicted_scores >= threshold).astype(int)
+        print(predicted_scores)
+        macro_auc_01 = roc_auc_score(true_labels, predicted_scores, max_fpr=0.1, average='macro')
+        auc_scores[epitope] = macro_auc_01
     return auc_scores
