@@ -19,17 +19,13 @@ def plot_loss(history, filename=None):
 
 
 def plot_metrics(history, filename=None):
-    epochs = range(1, len(history.history['accuracy']) + 1)
+    epochs = range(1, len(history.history['roc_auc']) + 1)
 
     plt.figure(figsize=(8, 6))
-    plt.plot(epochs, history.history['accuracy'], 'b', label='Accuracy', color='blue')
-    if 'val_accuracy' in history.history:
-        plt.plot(epochs, history.history['val_accuracy'], 'b', label='Validation Accuracy', color='cyan',
-                 linestyle='dashed')
 
-    plt.plot(epochs, history.history['roc_auc'], 'b', label='ROC AUC', color='red')
+    plt.plot(epochs, history.history['roc_auc'], 'b', label='ROC AUC')
     if 'val_roc_auc' in history.history:
-        plt.plot(epochs, history.history['val_roc_auc'], 'b', label='Validation ROC AUC', color='pink',
+        plt.plot(epochs, history.history['val_roc_auc'], 'b', label='Validation ROC AUC',
                  linestyle='dashed')
 
     plt.title('Training Metrics Across Epochs')

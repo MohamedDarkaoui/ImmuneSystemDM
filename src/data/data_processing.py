@@ -7,6 +7,7 @@ from src.external.bio.peptide_feature import parse_features, parse_operator
 from src.external.bio.feature_builder import CombinedPeptideFeatureBuilder
 from copy import deepcopy
 from enum import Enum
+from tqdm import tqdm
 
 
 class InteractionMapMode(Enum):
@@ -14,6 +15,14 @@ class InteractionMapMode(Enum):
     CONCATENATE = 2
     COMBINE = 3
     MERGE_DIMENSIONAL = 4
+    DUAL_INPUT = 5
+
+
+class TCR_info:
+    def __init__(self, chain, height, width):
+        self.chain = chain
+        self.height = height
+        self.width = width
 
 
 def list_epitopes(folder_name: str):
@@ -38,7 +47,7 @@ def concat_columns(df: pandas.DataFrame, tcr_chains: list):
     return df, [col_name]
 
 
-def load_epitope_tcr_data(folder_name: str,  epitope_name: str, tcr_chains: list):
+def load_epitope_tcr_data(folder_name: str, epitope_name: str, tcr_chains: list):
     """
     Creates a data frame that has three columns: [Epitope, tcr_chain[0]...tcr_chain[-1], Label]
     for one given epitope
@@ -109,13 +118,25 @@ def calculate_imap_shape(df_train: pandas.DataFrame, tcr_chains: list, mode: Int
 
 
 def generate_interaction_maps(tcr_chains, epitope, features_string, operator_string):
-    # specify the different interaction map features and the operator that is used to calculate the entries
     imaps = []
     for chain in tcr_chains:
         features_list = parse_features(features_string)
         operator = parse_operator(operator_string)
         feature_builder = CombinedPeptideFeatureBuilder(features_list, operator)
         imap = feature_builder.generate_peptides_feature(chain, epitope)
+        imaps.append(imap)
+    return imaps
+
+
+def generate_interaction_maps_and_pad(tcr_chains, epitope, features_string='hydrophob,isoelectric,mass,hydrophil'
+                                      , operator_string='absdiff'):
+    imaps = []
+    for tcr_info in tcr_chains:
+        features_list = parse_features(features_string)
+        operator = parse_operator(operator_string)
+        feature_builder = CombinedPeptideFeatureBuilder(features_list, operator)
+        imap = feature_builder.generate_peptides_feature(tcr_info.chain, epitope)
+        imap = pad(imap, tcr_info.height, tcr_info.width)
         imaps.append(imap)
     return imaps
 
@@ -181,7 +202,28 @@ def add_imaps_and_relabel(df, tcr_chains, height, width, mode: InteractionMapMod
         else:
             imaps.append(imap[0])
     df['interaction_map'] = imaps
-    df = df[['interaction_map', 'Label']]
+    df = df[['interaction_map', 'Label', 'Epitope']]
+    return df
+
+
+def add_imaps_column(df, tcr_chains, height, width, mode: InteractionMapMode):
+    # for each tcr-epitope pair, generate an interaction map, zero pad it and store it in df
+    imaps = []
+    for index, row, in df.iterrows():
+        imap = generate_interaction_maps_and_pad(
+            tcr_chains=[row[tcr_chains[i]] for i in range(len(tcr_chains))],
+            epitope=row['Epitope'],
+            height=height,
+            width=width
+        )
+        if mode.value == InteractionMapMode.DUAL_INPUT.value:
+            assert len(imap) == 2
+            imaps.append(imap)
+
+    if imaps and isinstance(imaps[0], list):
+        alphas, betas = zip(*((imap[0], imap[1]) for imap in imaps))
+        df['TRA_imap'] = alphas
+        df['TRB_imap'] = betas
 
     return df
 
@@ -213,4 +255,57 @@ def generate_test_data(test_folder: str, tcr_chains: list, mode: InteractionMapM
             height, width = imap_shape[1], imap_shape[2]
         df = add_imaps_and_relabel(df, chains, height, width, mode)
         data.append((epitope, df['interaction_map'].tolist(), df['Label'].tolist()))
+    return data
+
+
+def generate_ranking_test_data(test_folder: str, tcr_chains: list, mode: InteractionMapMode, imap_shape: tuple):
+    shape_alpha, shape_beta = imap_shape
+    height_alpha, width_alpha = shape_alpha[0], shape_alpha[1]
+    height_beta, width_beta = shape_beta[0], shape_beta[1]
+    epitopes = list_epitopes(test_folder)
+    data = []
+
+    for epitope in tqdm(epitopes):
+        df = load_epitope_tcr_data(test_folder, epitope, tcr_chains)
+        df = df[df['Label'] == 1]
+        dfs = [df]
+        for epitope2 in epitopes:
+            if epitope == epitope2:
+                continue
+            df2 = df.copy()
+            df2['Epitope'] = epitope2
+            df2['Label'] = 0
+            dfs.append(df2)
+        final_df = pd.concat(dfs, ignore_index=True)
+        final_df.drop_duplicates(inplace=True)
+        alphas, betas = [], []
+        for index, row in final_df.iterrows():
+            imap_alpha, imap_beta = generate_interaction_maps_and_pad(
+                [
+                    TCR_info(row['TRA_CDR3'], height_alpha, width_alpha),
+                    TCR_info(row['TRB_CDR3'], height_beta, width_beta)
+                ],
+                row['Epitope']
+            )
+            alphas.append(imap_alpha)
+            betas.append(imap_beta)
+
+        final_df['imap_alpha'] = alphas
+        final_df['imap_beta'] = betas
+        final_df['TRA_TRB_CDR3'] = final_df['TRA_CDR3'] + "_" + final_df['TRB_CDR3']
+        dfs_list = [(key, group[['imap_alpha', 'imap_beta', 'Label']]) for key, group in final_df.groupby('TRA_TRB_CDR3')]
+        keys, groups = zip(*dfs_list)
+        alpha_groups = [group['imap_alpha'].to_list() for group in groups]
+        beta_groups = [group['imap_beta'].tolist() for group in groups]
+        labels = [group['Label'].tolist() for group in groups]
+        data.append(
+            {
+                'Epitope': epitope,
+                'tcrs': keys,
+                'alpha_imaps': alpha_groups,
+                'beta_imaps': beta_groups,
+                'labels': labels
+            }
+        )
+
     return data

@@ -1,9 +1,8 @@
 import numpy as np
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
-from src.data.data_processing import generate_imap_dataset
-from src.models.CNN_model.model import build_model
-from src.visualization.plotting import *
+from src.models.AbstractModel import build_model
+
 
 # train_folder = '../../../../data/training_data/'
 # test_folder = '../../../../data/true_set/'
