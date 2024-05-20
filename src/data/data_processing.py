@@ -259,9 +259,13 @@ def generate_test_data(test_folder: str, tcr_chains: list, mode: InteractionMapM
 
 
 def generate_ranking_test_data(test_folder: str, tcr_chains: list, mode: InteractionMapMode, imap_shape: tuple):
-    shape_alpha, shape_beta = imap_shape
-    height_alpha, width_alpha = shape_alpha[0], shape_alpha[1]
-    height_beta, width_beta = shape_beta[0], shape_beta[1]
+    if mode == InteractionMapMode.DUAL_INPUT:
+        shape_alpha, shape_beta = imap_shape
+        height_alpha, width_alpha = shape_alpha[0], shape_alpha[1]
+        height_beta, width_beta = shape_beta[0], shape_beta[1]
+    else:
+        height, width, depth = imap_shape
+
     epitopes = list_epitopes(test_folder)
     data = []
 
@@ -278,34 +282,70 @@ def generate_ranking_test_data(test_folder: str, tcr_chains: list, mode: Interac
             dfs.append(df2)
         final_df = pd.concat(dfs, ignore_index=True)
         final_df.drop_duplicates(inplace=True)
-        alphas, betas = [], []
-        for index, row in final_df.iterrows():
-            imap_alpha, imap_beta = generate_interaction_maps_and_pad(
-                [
-                    TCR_info(row['TRA_CDR3'], height_alpha, width_alpha),
-                    TCR_info(row['TRB_CDR3'], height_beta, width_beta)
-                ],
-                row['Epitope']
-            )
-            alphas.append(imap_alpha)
-            betas.append(imap_beta)
 
-        final_df['imap_alpha'] = alphas
-        final_df['imap_beta'] = betas
-        final_df['TRA_TRB_CDR3'] = final_df['TRA_CDR3'] + "_" + final_df['TRB_CDR3']
-        dfs_list = [(key, group[['imap_alpha', 'imap_beta', 'Label']]) for key, group in final_df.groupby('TRA_TRB_CDR3')]
-        keys, groups = zip(*dfs_list)
-        alpha_groups = [group['imap_alpha'].to_list() for group in groups]
-        beta_groups = [group['imap_beta'].tolist() for group in groups]
-        labels = [group['Label'].tolist() for group in groups]
-        data.append(
-            {
-                'Epitope': epitope,
-                'tcrs': keys,
-                'alpha_imaps': alpha_groups,
-                'beta_imaps': beta_groups,
-                'labels': labels
-            }
-        )
+        if mode == InteractionMapMode.DUAL_INPUT:
+            alphas, betas = [], []
+            for _, row in final_df.iterrows():
+                imap_alpha, imap_beta = generate_interaction_maps_and_pad(
+                    [
+                        TCR_info(row['TRA_CDR3'], height_alpha, width_alpha),
+                        TCR_info(row['TRB_CDR3'], height_beta, width_beta)
+                    ],
+                    row['Epitope']
+                )
+                alphas.append(imap_alpha)
+                betas.append(imap_beta)
+
+            final_df['imap_alpha'] = alphas
+            final_df['imap_beta'] = betas
+            final_df['TRA_TRB_CDR3'] = final_df['TRA_CDR3'] + "_" + final_df['TRB_CDR3']
+            dfs_list = [(key, group[['imap_alpha', 'imap_beta', 'Label']]) for key, group in
+                        final_df.groupby('TRA_TRB_CDR3')]
+            keys, groups = zip(*dfs_list) if dfs_list else ([], [])
+            alpha_groups = [group['imap_alpha'].to_list() for group in groups]
+            beta_groups = [group['imap_beta'].to_list() for group in groups]
+            labels = [group['Label'].to_list() for group in groups]
+            data.append(
+                {
+                    'Epitope': epitope,
+                    'tcrs': keys,
+                    'alpha_imaps': alpha_groups,
+                    'beta_imaps': beta_groups,
+                    'labels': labels
+                }
+            )
+        else:
+            imaps = []
+            for _, row in final_df.iterrows():
+                if mode == InteractionMapMode.CONCATENATE:
+                    concatenated_chain = ''.join([row[chain] for chain in tcr_chains])
+                    tcr_infos = [TCR_info(concatenated_chain, height, width)]
+                    imap = generate_interaction_maps_and_pad(tcr_infos, row['Epitope'])[0]
+                else:
+                    tcr_infos = [TCR_info(row[chain], height, width) for chain in tcr_chains]
+                    imap = generate_interaction_maps_and_pad(tcr_infos, row['Epitope'])
+                    if mode == InteractionMapMode.COMBINE:
+                        imap = combine_imaps(imap)
+                    else:
+                        imap = imap[0]
+
+                imaps.append(imap)
+
+            final_df['interaction_map'] = imaps
+            final_df['TRA_TRB_CDR3'] = final_df[tcr_chains[0]] if len(tcr_chains) == 1 else final_df[tcr_chains].agg('_'.join, axis=1)
+            dfs_list = [(key, group[['interaction_map', 'Label']]) for key, group in final_df.groupby('TRA_TRB_CDR3')]
+            keys, groups = zip(*dfs_list) if dfs_list else ([], [])
+            imap_groups = [group['interaction_map'].to_list() for group in groups]
+            labels = [group['Label'].to_list() for group in groups]
+            data.append(
+                {
+                    'Epitope': epitope,
+                    'tcrs': keys,
+                    'interaction_maps': imap_groups,
+                    'labels': labels
+                }
+            )
 
     return data
+
+

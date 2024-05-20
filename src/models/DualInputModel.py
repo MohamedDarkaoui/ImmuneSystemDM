@@ -113,23 +113,40 @@ class DualInputModel(TCR3DModel):
         self.is_trained = True
         return history
 
+    from sklearn.metrics import roc_auc_score
+    import numpy as np
+
     def evaluate(self, test_data):
         model = self.model if self.is_trained else tf.keras.models.load_model(self.save_path)
+
+        all_true_labels = []
+        all_predicted_scores = []
         auc_scores = dict()
+
         test_data_alpha, test_data_beta = test_data
         for i in range(len(test_data_alpha)):
             epitope, imaps_alpha, true_labels = test_data_alpha[i]
             epitope2, imaps_beta, true_labels2 = test_data_beta[i]
             assert (epitope, true_labels) == (epitope2, true_labels2)
 
-            print('shape alpha', imaps_alpha[0].shape)
-            print('shape beta', imaps_beta[0].shape)
             imaps_alpha_tensor = tf.stack(imaps_alpha)
             imaps_beta_tensor = tf.stack(imaps_beta)
             predicted_scores = model.predict([imaps_alpha_tensor, imaps_beta_tensor])
+
+            all_true_labels.extend(true_labels)
+            all_predicted_scores.extend(predicted_scores)
+
             auc = roc_auc_score(true_labels, predicted_scores)
             auc_scores[epitope] = auc
-        return auc_scores
+
+        all_true_labels = np.array(all_true_labels)
+        all_predicted_scores = np.array(all_predicted_scores)
+
+        micro_auc = roc_auc_score(all_true_labels, all_predicted_scores)
+
+        macro_auc = sum(auc_scores.values()) / len(auc_scores)
+
+        return auc_scores, macro_auc, micro_auc
 
     def evaluate_rank(self, test_data: list):
 

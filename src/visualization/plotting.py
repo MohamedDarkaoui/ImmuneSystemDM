@@ -38,24 +38,26 @@ def plot_metrics(history, filename=None):
     plt.show()
 
 
-def plot_auc(auc_scores, filename=None):
-    auc_scores = dict(sorted(auc_scores.items(), key=lambda item: item[1], reverse=True))
-    average_auc_score = sum(auc_scores.values()) / len(auc_scores)
+def plot_dict(data,  xlabel='X-axis', ylabel='Y-axis', title='Plot', average_line=True, half_line=True,
+              filename=None):
+    data = dict(sorted(data.items(), key=lambda item: item[1], reverse=True))
+    average_value = sum(data.values()) / len(data)
+
     plt.figure(figsize=(10, 6))
-    bars = plt.bar(auc_scores.keys(), auc_scores.values(), color='skyblue')
-    plt.xlabel('Epitopes')
-    plt.ylabel('AUC Score')
-    plt.title('AUC Scores for Different Epitopes')
+    bars = plt.bar(data.keys(), data.values(), color='skyblue')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
     plt.ylim(0, 1)
     plt.xticks(rotation='vertical')
 
-    # vertical line for the average AUC score
-    plt.axhline(y=average_auc_score, color='red', linestyle='--', linewidth=1)
-    plt.text(x=len(auc_scores) - 1, y=average_auc_score, s='Average', color='red', va='bottom')
+    if average_line:
+        plt.axhline(y=average_value, color='red', linestyle='--', linewidth=1)
+        plt.text(len(data) - 1, average_value, f'Average: {average_value:.2f}', color='red', va='bottom', ha='right')
 
-    # indicate the 50%
-    plt.axhline(y=0.5, color='purple', linestyle='--', linewidth=1)
-    plt.text(x=len(auc_scores) - 1, y=0.5, s='0.5', color='red', va='bottom')
+    if half_line:
+        plt.axhline(y=0.5, color='purple', linestyle='--', linewidth=1)
+        plt.text(len(data) - 1, 0.5, '0.5', color='purple', va='bottom', ha='right')
 
     plt.tight_layout()
 

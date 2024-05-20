@@ -116,16 +116,53 @@ class AbstractModel:
         model = self.model if self.is_trained else tf.keras.models.load_model(self.save_path)
         auc_scores = dict()
 
+        all_true_labels = []
+        all_predicted_scores = []
+
         for test_epitope in test_data:
             epitope, imaps, true_labels = test_epitope
 
-            print('shape', imaps[0].shape)
             imaps_tensor = tf.stack(imaps)
             predicted_scores = model.predict(imaps_tensor)
+
+            all_true_labels.extend(true_labels)
+            all_predicted_scores.extend(predicted_scores)
+
             auc = roc_auc_score(true_labels, predicted_scores)
             auc_scores[epitope] = auc
-        return auc_scores
 
+        all_true_labels = np.array(all_true_labels)
+        all_predicted_scores = np.array(all_predicted_scores)
+        micro_auc = roc_auc_score(all_true_labels, all_predicted_scores)
 
+        macro_auc = sum(auc_scores.values()) / len(auc_scores)
+
+        return auc_scores, macro_auc, micro_auc
+
+    def evaluate_rank(self, test_data: list):
+        model = self.model if self.is_trained else tf.keras.models.load_model(self.save_path)
+
+        ranks = dict()
+        for group in test_data:
+            epitope = group['Epitope']
+            tcrs = group['tcrs']
+            imaps_list = group['interaction_maps']
+            labels_list = group['labels']
+            group_ranks = []
+            print(epitope)
+            for i in range(len(tcrs)):
+                imaps = imaps_list[i]
+                labels = labels_list[i]
+                assert labels[0] == 1
+                assert labels.count(1) == 1
+                imaps_tensor = tf.stack(imaps)
+                prediction_scores = model.predict(imaps_tensor)
+
+                prediction_scores = prediction_scores.tolist()
+                rank = len([pred for pred in prediction_scores if pred > prediction_scores[0]]) + 1
+                group_ranks.append(rank)
+
+            ranks[epitope] = np.mean(group_ranks)
+        return ranks
 
 

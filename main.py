@@ -1,6 +1,6 @@
 from src.data.data_processing import generate_imap_dataset, generate_test_data, InteractionMapMode
 from src.models.DualInputModel import DualInputModel
-from src.visualization.plotting import plot_metrics, plot_auc
+from src.visualization.plotting import plot_metrics, plot_dict
 import keras_tuner
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
@@ -11,9 +11,9 @@ MODEL_PATH = 'models/TEST/4DIM'
 ALPHA = ['TRA_CDR3']
 BETA = ['TRB_CDR3']
 CHAINS = ['TRA_CDR3', 'TRB_CDR3']
-SAVE_PATH = 'models/TEST2/combine/config1'
+SAVE_PATH = 'models/TEST2/combine/model3'
 MODE = InteractionMapMode.SINGLE
-DUAL_PATH = 'models/DUAL/config1'
+DUAL_PATH = 'models/dual/model3'
 
 df_alpha, shape_alpha = generate_imap_dataset(TRAIN_FOLDER, ALPHA, MODE)
 df_beta, shape_beta = generate_imap_dataset(TRAIN_FOLDER, BETA, MODE)
@@ -61,47 +61,80 @@ df_beta, shape_beta = generate_imap_dataset(TRAIN_FOLDER, BETA, MODE)
 # print(tuner.search_space_summary())
 # tuner.search(train_data, epochs=2, validation_data=val_data)
 
-
-from src.data.data_processing import *
-model = DualInputModel(
-    second_unit=True,
-    save_path=DUAL_PATH,
-    input_shape=[shape_alpha, shape_beta],
-    l2=3e-05,
-    kernel_size=3,
-    nr_filters_layer1=256,
-    nr_filters_layer2=256,
-    nr_dense=64,
-    optimizer='sgd',
-    pool_size=2,
-    dropout_rate=0.25
-)
-# history = model.train(imap_df=(df_alpha, df_beta), epochs=100)
-
-test_data = (
-    generate_test_data(test_folder=TEST_FOLDER, tcr_chains=ALPHA, mode=MODE, imap_shape=shape_alpha),
-    generate_test_data(test_folder=TEST_FOLDER, tcr_chains=BETA, mode=MODE, imap_shape=shape_beta)
-)
-
-# auc_scores = model.evaluate(test_data=test_data)
-# print(sum(auc_scores.values()) / len(auc_scores))
-# plot_auc(auc_scores)
-
-ranking_data = generate_ranking_test_data(TEST_FOLDER, CHAINS, MODE, (shape_alpha, shape_beta))
-
-
-
-
-ranks = model.evaluate_rank(ranking_data)
-
-print(ranks)
-vals = ranks.values()
-print("avg: ", sum(vals)/len(vals))
+#
+# from src.data.data_processing import *
+# model = DualInputModel(
+#     second_unit=True,
+#     save_path=DUAL_PATH,
+#     input_shape=[shape_alpha, shape_beta],
+#     l2=3e-05,
+#     kernel_size=3,
+#     nr_filters_layer1=256,
+#     nr_filters_layer2=256,
+#     nr_dense=64,
+#     optimizer='sgd',
+#     pool_size=2,
+#     dropout_rate=0.25
+# )
+# # history = model.train(imap_df=(df_alpha, df_beta), epochs=100)
+#
+# test_data = (
+#     generate_test_data(test_folder=TEST_FOLDER, tcr_chains=ALPHA, mode=MODE, imap_shape=shape_alpha),
+#     generate_test_data(test_folder=TEST_FOLDER, tcr_chains=BETA, mode=MODE, imap_shape=shape_beta)
+# )
+#
+# # auc_scores = model.evaluate(test_data=test_data)
+# # print(sum(auc_scores.values()) / len(auc_scores))
+# # plot_auc(auc_scores)
+#
+# ranking_data = generate_ranking_test_data(TEST_FOLDER, CHAINS, InteractionMapMode.DUAL_INPUT, (shape_alpha, shape_beta))
+#
+#
+# ranks = model.evaluate_rank(ranking_data)
+#
+# print(ranks)
+# vals = ranks.values()
+# print("avg: ", sum(vals)/len(vals))
 
 
 
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+# Define the sequences
+alpha = "CAFMSLYGGSQGNLIF"
+beta = "CASSYPYRGLLAGSGNTIYF"
+epitope = "ATDALMTGF"
 
+# Concatenate alpha and beta sequences
+concatenated_sequence = alpha + beta
 
+# Generate random values for the heatmap
+np.random.seed(0)  # For reproducibility
+interaction_map = np.random.rand(len(beta), len(epitope))
 
+# Add padding to the interaction map
+padding = 2
+padded_map = np.full((len(beta) + 2 * padding, len(epitope) + 2 * padding), np.nan)
+padded_map[padding:padding + len(beta), padding:padding + len(epitope)] = interaction_map
 
+# Create the heatmap with the 'Blues' colormap
+fig, ax = plt.subplots(figsize=(25, 25 / 3))  # Increased figure size for better readability
+sns.heatmap(padded_map, cmap='Blues', cbar=False,
+            xticklabels=['']*padding + list(epitope) + ['']*padding,
+            yticklabels=['']*padding + list(beta) + ['']*padding,
+            ax=ax, linewidths=0.5, linecolor='lightgray')
+
+# Set axis labels and title
+ax.set_xlabel('Epitope')
+ax.set_ylabel('Concatenated Alpha + Beta')
+ax.set_title('Mass')
+
+# Ensure each cell is rectangular
+ax.set_aspect(0.5)  # Adjust this value to get the desired aspect ratio
+
+plt.xticks(rotation=0)  # Keep x-axis labels horizontal for better readability
+plt.yticks(rotation=0)  # Ensure y-axis labels are horizontal
+
+plt.show()
